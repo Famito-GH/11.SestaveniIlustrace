@@ -111,38 +111,34 @@ def export_selected_products(selected_kody=None):
     global slides_processed
     slides_processed = 0
 
+    # znovu najdi soubory (pro frozen exe i pro script)
     if getattr(sys, 'frozen', False):
-        BASE_DIR = os.path.dirname(sys.executable)
+        base_dir = os.path.dirname(sys.executable)
     else:
-        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+        base_dir = os.path.dirname(os.path.abspath(__file__))
 
-    log_file = os.path.join(BASE_DIR, "log.txt")
-    logging.basicConfig(
-        filename=log_file,
-        level=logging.DEBUG,
-        format="%(asctime)s - %(levelname)s - %(message)s",
-        filemode="w"
-    )
-    logging.info("===== Spouštím skript 11.SestaveniIlustrace ===== " + BASE_DIR)
-
-    excel_files = glob.glob(os.path.join(BASE_DIR, "*.xlsx"))
-    pptx_files = glob.glob(os.path.join(BASE_DIR, "*.pptx"))
+    excel_files = glob.glob(os.path.join(base_dir, "*.xlsx"))
+    pptx_files = glob.glob(os.path.join(base_dir, "*.pptx"))
 
     excel_file = excel_files[0] if excel_files else None
     pptx_file = pptx_files[0] if pptx_files else None
 
-    # ...existing code...
+    if not excel_file or not pptx_file:
+        logging.error("❌ Nebyl nalezen Excel nebo PowerPoint soubor.")
+        tk.Tk().withdraw()
+        messagebox.showerror("Chyba", "Nebyl nalezen Excel nebo PowerPoint soubor ve složce.")
+        return
 
+    # načti Excel
     try:
         df = pd.read_excel(excel_file, header=0)
+        df.columns = pd.Index([str(col).strip() for col in df.columns])
         logging.info(f"Excel úspěšně načten. Sloupce: {list(df.columns)}")
     except Exception as e:
         logging.exception(f"❌ Chyba při načítání Excelu: {e}")
         tk.Tk().withdraw()
         messagebox.showerror("Chyba", f"Chyba při načítání Excelu: {e}")
         return
-
-    df.columns = pd.Index([str(col).strip() for col in df.columns])
 
     required_columns = [
         "Číslo modelu",
@@ -152,21 +148,45 @@ def export_selected_products(selected_kody=None):
         "HLOUBKA",
         "Šířka popruhu",
         "Maximální délka popruhu",
-        "Minimální délka popruhu"
+        "Minimální délka popruhu",
+        # "Kód" nemusí být v required_columns protože ho používáme pro filtr/pojmenování
     ]
     missing = [col for col in required_columns if col not in df.columns]
     if missing:
         logging.error(f"❌ Excel neobsahuje požadované sloupce: {', '.join(missing)}")
+        tk.Tk().withdraw()
         messagebox.showerror("Chyba", f"Excel neobsahuje požadované sloupce: {', '.join(missing)}")
         return
 
-    # Kontrola existence sloupce před nastavením indexu
-    if "Číslo modelu" in df.columns:
-        df = df.set_index("Číslo modelu")
-        df.index = df.index.map(lambda x: str(x).strip())
-    else:
-        logging.error("❌ Excel neobsahuje sloupec 'Číslo modelu'. Další zpracování bylo přeskočeno.")
-        messagebox.showerror("Chyba", "Excel neobsahuje sloupec 'Číslo modelu'.")
+    # normalizuj číslo modelu jako string sloupec
+    df["Číslo modelu"] = df["Číslo modelu"].astype(str).str.strip()
+
+    # zkontroluj, jestli máme Kód když se filtruje podle vybraných kódů
+    if selected_kody is not None and "Kód" not in df.columns:
+        logging.error("❌ Excel neobsahuje sloupec 'Kód', ale uživatel vybral konkrétní produkty.")
+        tk.Tk().withdraw()
+        messagebox.showerror("Chyba", "Excel neobsahuje sloupec 'Kód'.")
+        return
+
+    # dropna pro potřebné sloupce (bez 'Číslo modelu')
+    dropna_columns = [col for col in required_columns if col != "Číslo modelu"] + (["Kód"] if "Kód" in df.columns else [])
+    missing_dropna = [col for col in dropna_columns if col not in df.columns]
+    if missing_dropna:
+        logging.error(f"❌ Nelze filtrovat platné řádky, chybí sloupce: {', '.join(missing_dropna)}")
+        tk.Tk().withdraw()
+        messagebox.showerror("Chyba", f"Nelze filtrovat platné řádky, chybí sloupce: {', '.join(missing_dropna)}")
+        return
+
+    valid_rows = df.dropna(subset=dropna_columns)
+
+    # pokud uživatel vybral konkrétní kódy, filtruj podle něj
+    if selected_kody is not None:
+        valid_rows = valid_rows[valid_rows["Kód"].astype(str).isin(selected_kody)]
+
+    if valid_rows.empty:
+        logging.info("ℹ️ Žádné validní řádky k exportu.")
+        tk.Tk().withdraw()
+        messagebox.showinfo("Hotovo", "Nebyl nalezen žádný produkt k exportu.")
         return
 
     shape_to_column = {
@@ -180,90 +200,153 @@ def export_selected_products(selected_kody=None):
         "CisloModelu": "Číslo modelu",
     }
 
-    dropna_columns = [col for col in required_columns if col != "Číslo modelu"] + ["Kód"]
-    missing_dropna = [col for col in dropna_columns if col not in df.columns]
-    if missing_dropna:
-        logging.error(f"❌ Nelze filtrovat platné řádky, chybí sloupce: {', '.join(missing_dropna)}")
-        messagebox.showerror("Chyba", f"Nelze filtrovat platné řádky, chybí sloupce: {', '.join(missing_dropna)}")
-        return
-    valid_rows = df.dropna(subset=dropna_columns)
+    # seskupíme podle čísla modelu
+    grouped = valid_rows.groupby("Číslo modelu")
 
-    # Filtrování podle výběru uživatele
-    if selected_kody is not None:
-        if "Kód" not in valid_rows.columns:
-            logging.error("❌ Excel neobsahuje sloupec 'Kód'.")
-            messagebox.showerror("Chyba", "Excel neobsahuje sloupec 'Kód'.")
-            return
-        valid_rows = valid_rows[valid_rows["Kód"].astype(str).isin(selected_kody)]
+    total_to_process = 0
+    for model, group in grouped:
+        total_to_process += len(group)
 
-    slides_processed = 0
+    logging.info(f"Začínám export: {total_to_process} produktů ve {len(grouped)} skupinách podle čísla modelu.")
 
-    for idx, row in valid_rows.iterrows():
-        kod = str(row["Kód"]).strip() if "Kód" in row else "NEZNÁMÝ"
-        prs = Presentation(pptx_file)
-        slide = prs.slides[0]
+    # Pro každý model najdi odpovídající slide ve vzorovém PPT a pro každý produkt vygeneruj JPG
+    for model, group in grouped:
+        model_str = str(model).strip()
+        logging.info(f"--- Zpracovávám model: {model_str} (položek: {len(group)}) ---")
 
-        for shape in slide.shapes:
-            shape_name = shape.name
-            if shape_name in shape_to_column and shape_to_column[shape_name] in row:
-                excel_col = shape_to_column[shape_name]
-                if excel_col == "Číslo modelu":
-                    value = idx
-                else:
-                    value = row[excel_col]
-                # Přidej jednotky a formátování
-                if shape_name == "váha":
-                    value_str = f"{value} kg"
-                elif shape_name == "hloubka":
-                    value_str = f"{int(round(float(value)))} cm"
-                elif shape_name in ["šířka", "výška", "šířka popruhu", "max. délka popruhu", "min. délka popruhu"]:
-                    value_str = f"{value} cm"
-                else:
-                    value_str = str(value)
-                shape.text = value_str
-                logging.info(f"Kód {kod}: shape '{shape_name}' → {value_str}")
+        # Pro každý produkt (řádek) otevřeme novou instanci Presentation z originálního PPTX,
+        # najdeme slide se shape 'CisloModelu' a porovnáme text.
+        for _, row in group.iterrows():
+            kod = str(row["Kód"]).strip() if "Kód" in row and not pd.isna(row["Kód"]) else "NEZNAMY"
+            try:
+                prs = Presentation(pptx_file)
 
-                if hasattr(shape, "text_frame") and shape.text_frame is not None:
-                    # Zarovnání doprava pro šířku popruhu a hloubku
-                    if shape_name in ["šířka popruhu", "hloubka"]:
-                        for paragraph in shape.text_frame.paragraphs:
-                            paragraph.alignment = PP_ALIGN.RIGHT
-                    for paragraph in shape.text_frame.paragraphs:
-                        for run in paragraph.runs:
-                            run.font.name = "Open Sans"
-                            run.font.bold = True
-                            # Formátování pro rozměry
-                            if shape_name in ["šířka", "výška", "hloubka", "šířka popruhu", "max. délka popruhu", "min. délka popruhu"]:
-                                run.font.size = Pt(44)
-                            elif shape_name == "váha":
-                                run.font.size = Pt(28)
+                target_slide_idx = None
+                # najdi index slide (0-based) které obsahuje CisloModelu = model_str
+                for i, slide in enumerate(prs.slides):
+                    found = False
+                    for shape in slide.shapes:
+                        try:
+                            # použij preferenčně shape.text pokud dostupné, jinak text_frame
+                            slide_text = ""
+                            if hasattr(shape, "text") and shape.text is not None:
+                                slide_text = str(shape.text).strip()
+                            elif hasattr(shape, "text_frame") and shape.text_frame is not None:
+                                slide_text = str(shape.text_frame.text).strip()
+                        except Exception:
+                            slide_text = ""
+                        # porovnej jen pokud má shape jméno CisloModelu
+                        if getattr(shape, "name", "") == "CisloModelu" and slide_text == model_str:
+                            target_slide_idx = i
+                            found = True
+                            break
+                    if found:
+                        break
 
-        # Export pouze JPG, bez ukládání PPTX
-        try:
-            # Ulož dočasný soubor pouze pro export (nutné pro COM API)
-            temp_pptx = os.path.join(output_folder, f"__temp_{kod}.pptx")
-            prs.save(temp_pptx)
+                if target_slide_idx is None:
+                    logging.warning(f"⚠️ Šablonový slide pro model '{model_str}' nebyl nalezen. Kód {kod} přeskočen.")
+                    continue
 
-            powerpoint = comtypes.client.CreateObject("Powerpoint.Application")
-            powerpoint.Visible = 1
-            presentation = powerpoint.Presentations.Open(temp_pptx, WithWindow=False)
+                target_slide = prs.slides[target_slide_idx]
 
-            export_path = os.path.join(output_folder, f"{kod}_20.jpg")
-            presentation.Slides[1].Export(export_path, "JPG")
+                # doplň hodnoty do shapů na nalezeném slidu
+                for shape in target_slide.shapes:
+                    shape_name = getattr(shape, "name", "")
+                    if shape_name in shape_to_column:
+                        excel_col = shape_to_column[shape_name]
+                        if excel_col == "Číslo modelu":
+                            value = model_str
+                        else:
+                            # pokud sloupec chybí v řádku, vynech
+                            value = row.get(excel_col, "")
+                        # formátování
+                        try:
+                            if shape_name == "váha" and value != "":
+                                value_str = f"{value} kg"
+                            elif shape_name == "hloubka" and value != "":
+                                value_str = f"{int(round(float(value)))} cm"
+                            elif shape_name in ["šířka", "výška", "šířka popruhu", "max. délka popruhu", "min. délka popruhu"] and value != "":
+                                value_str = f"{value} cm"
+                            else:
+                                value_str = "" if pd.isna(value) else str(value)
+                        except Exception:
+                            value_str = str(value)
 
-            presentation.Close()
-            powerpoint.Quit()
-            logging.info(f"✅ Kód {kod}: exportováno do {export_path}")
-            slides_processed += 1
+                        # nastav text (pokud shape není textový, propadne se)
+                        try:
+                            if hasattr(shape, "text"):
+                                shape.text = value_str
+                            elif hasattr(shape, "text_frame") and shape.text_frame is not None:
+                                # vyčisti a nastav první paragraph
+                                shape.text_frame.clear()
+                                p = shape.text_frame.paragraphs[0]
+                                p.text = value_str
+                        except Exception as e:
+                            logging.debug(f"Nelze nastavit text pro shape '{shape_name}' na slide {target_slide_idx}: {e}")
 
-            # Smaž dočasný PPTX soubor
-            os.remove(temp_pptx)
+                        logging.info(f"Kód {kod}: shape '{shape_name}' → {value_str}")
 
-        except Exception as e:
-            logging.exception(f"❌ Chyba při exportu kódu {kod}: {e}")
+                        # formátování fontu + zarovnání
+                        if hasattr(shape, "text_frame") and shape.text_frame is not None:
+                            if shape_name in ["šířka popruhu", "hloubka", "váha", "min. délka popruhu"]:
+                                for paragraph in shape.text_frame.paragraphs:
+                                    paragraph.alignment = PP_ALIGN.RIGHT
+                            for paragraph in shape.text_frame.paragraphs:
+                                for run in paragraph.runs:
+                                    try:
+                                        run.font.name = "Open Sans"
+                                        run.font.bold = True
+                                        if shape_name in ["šířka", "výška", "hloubka", "šířka popruhu",
+                                                          "max. délka popruhu", "min. délka popruhu"]:
+                                            run.font.size = Pt(44)
+                                        elif shape_name == "váha":
+                                            run.font.size = Pt(28)
+                                    except Exception:
+                                        pass
+
+                # ulož do temp PPTX a exportuj přes COM
+                temp_pptx = os.path.abspath(os.path.join(output_folder, f"__temp_{kod}.pptx"))
+                prs.save(temp_pptx)
+
+                powerpoint = None
+                presentation = None
+                try:
+                    powerpoint = comtypes.client.CreateObject("Powerpoint.Application")
+                    powerpoint.Visible = 1
+                    presentation = powerpoint.Presentations.Open(temp_pptx, WithWindow=False)
+
+                    export_path = os.path.abspath(os.path.join(output_folder, f"{kod}_20.jpg"))
+                    # COM kolekce Slides je 1-based -> použij Item(index)
+                    slide_to_export = presentation.Slides.Item(target_slide_idx + 1)
+                    slide_to_export.Export(export_path, "JPG")
+
+                    logging.info(f"✅ Kód {kod}: exportováno do {export_path}")
+                    slides_processed += 1
+
+                finally:
+                    try:
+                        if presentation is not None:
+                            presentation.Close()
+                    except Exception:
+                        pass
+                    try:
+                        if powerpoint is not None:
+                            powerpoint.Quit()
+                    except Exception:
+                        pass
+
+                # smaž temp soubor
+                try:
+                    os.remove(temp_pptx)
+                except Exception:
+                    pass
+
+            except Exception as e:
+                logging.exception(f"❌ Chyba při zpracování kódu {kod} (model {model_str}): {e}")
 
     logging.info(f"Zpracováno {slides_processed} slidů.")
     logging.info("===== Konec skriptu =====")
+    tk.Tk().withdraw()
     messagebox.showinfo("Hotovo", f"Zpracováno {slides_processed} slidů.\nVýstup: {output_folder}")
 
 def gui_main():
