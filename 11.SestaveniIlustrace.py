@@ -63,9 +63,9 @@ required_columns = [
     "Minimální délka popruhu"
 ]
 
-missing = [col for col in required_columns if col not in df.columns]
-if missing:
-    logging.error(f"❌ Excel neobsahuje požadované sloupce: {', '.join(missing)}")
+# missing = [col for col in required_columns if col not in df.columns]
+# if missing:
+#     logging.error(f"❌ Excel neobsahuje požadované sloupce: {', '.join(missing)}")
 
 def format_excel_value(val):
     if pd.isna(val):
@@ -110,12 +110,6 @@ def export_selected_products(selected_kody=None):
         if "Kód" in df.columns:
             df["Kód"] = df["Kód"].astype(str).str.strip()
 
-        # --- NOVÉ: výpis všech sloupců ---
-        logging.info(f"✅ Excel načten. Nalezené sloupce: {list(df.columns)}")
-        print("Nalezené sloupce v Excelu:")
-        for col in df.columns:
-            print(f"- {col}")
-
     except Exception as e:
         logging.exception(f"❌ Chyba při načítání Excelu: {e}")
         tk.Tk().withdraw()
@@ -134,12 +128,12 @@ def export_selected_products(selected_kody=None):
         "Maximální délka popruhu",
         "Minimální délka popruhu"
     ]
-    missing = [col for col in required_columns if col not in df.columns]
-    if missing:
-        logging.error(f"❌ Excel neobsahuje požadované sloupce: {', '.join(missing)}")
-        tk.Tk().withdraw()
-        messagebox.showerror("Chyba", f"Excel neobsahuje požadované sloupce: {', '.join(missing)}")
-        return
+    # missing = [col for col in required_columns if col not in df.columns]
+    # if missing:
+    #     logging.error(f"❌ Excel neobsahuje požadované sloupce: {', '.join(missing)}")
+    #     tk.Tk().withdraw()
+    #     messagebox.showerror("Chyba", f"Excel neobsahuje požadované sloupce: {', '.join(missing)}")
+    #     return
 
     # Dropna pro povinné sloupce + Kód pokud existuje
     dropna_columns = [col for col in required_columns if col != "Číslo modelu"]
@@ -167,8 +161,9 @@ def export_selected_products(selected_kody=None):
         "šířka popruhu": "Šířka popruhu",
         "max. délka popruhu": "Maximální délka popruhu",
         "min. délka popruhu": "Minimální délka popruhu",
-        "objem": "Objem",           # nepovinné
-        "šířka ucha": "Šířka ucha", # nepovinné
+        "objem": "Objem",           
+        "ramenní popruhy": "Šířka ucha", 
+        "výška ucha": "Výška ucha", 
         "CisloModelu": "Číslo modelu",
     }
 
@@ -229,7 +224,7 @@ def export_selected_products(selected_kody=None):
                         if shape_name == "váha":
                             value_str = f"{value} kg"
                         elif shape_name in ["šířka", "výška", "hloubka", "šířka popruhu",
-                                            "max. délka popruhu", "min. délka popruhu", "šířka ucha"]:
+                                            "max. délka popruhu", "min. délka popruhu", "ramenní popruhy", "výška ucha"]:
                             value_str = f"{value} cm"
                         elif shape_name == "objem":
                             value_str = f"{value} l"
@@ -250,7 +245,7 @@ def export_selected_products(selected_kody=None):
 
                         # Font a zarovnání
                         if hasattr(shape, "text_frame") and shape.text_frame is not None:
-                            if shape_name in ["šířka popruhu", "hloubka", "váha", "min. délka popruhu", "objem", "šířka ucha"]:
+                            if shape_name in ["šířka popruhu", "hloubka", "váha", "min. délka popruhu", "objem", "ramenní popruhy","max. délka popruhu", "výška ucha"]:
                                 for paragraph in shape.text_frame.paragraphs:
                                     paragraph.alignment = PP_ALIGN.RIGHT
                             for paragraph in shape.text_frame.paragraphs:
@@ -258,7 +253,7 @@ def export_selected_products(selected_kody=None):
                                     run.font.name = "Open Sans"
                                     run.font.bold = True
                                     if shape_name in ["šířka", "výška", "hloubka", "šířka popruhu",
-                                                      "max. délka popruhu", "min. délka popruhu", "šířka ucha", "objem"]:
+                                                      "max. délka popruhu", "min. délka popruhu", "ramenní popruhy", "objem","výška ucha"]:
                                         run.font.size = Pt(44)
                                     elif shape_name == "váha":
                                         run.font.size = Pt(28)
