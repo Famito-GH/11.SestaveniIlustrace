@@ -11,7 +11,6 @@ from pptx.enum.text import PP_ALIGN
 import tkinter as tk
 from tkinter import messagebox, Listbox, MULTIPLE, END
 import threading
-import time
 
 # ---------------- LOGGING ---------------- #
 if getattr(sys, 'frozen', False):
@@ -54,21 +53,6 @@ if excel_file:
         logging.info(f"Excel úspěšně načten. Sloupce: {list(df.columns-2)}")
     except Exception as e:
         logging.exception(f"❌ Chyba při načítání Excelu: {e}")
-
-# required_columns = [
-#     "Číslo modelu",
-#     "Hmotnost (kg)",
-#     "ŠÍŘKA",
-#     "VÝŠKA",
-#     "HLOUBKA",
-#     "Šířka popruhu",
-#     "Maximální délka popruhu",
-#     "Minimální délka popruhu"
-# ]
-
-# missing = [col for col in required_columns if col not in df.columns]
-# if missing:
-#     logging.error(f"❌ Excel neobsahuje požadované sloupce: {', '.join(missing)}")
 
 def format_excel_value(val):
     if pd.isna(val):
@@ -294,7 +278,6 @@ def export_selected_products(selected_kody=None):
         # Vždy vyčisti COM
         pythoncom.CoUninitialize()
         export_in_progress = False
-
 
 # ---------------- GUI ---------------- #
 def gui_main():
